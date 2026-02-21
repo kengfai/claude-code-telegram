@@ -246,9 +246,9 @@ class Settings(BaseSettings):
             return [int(uid) for uid in v]
         return v  # type: ignore[no-any-return]
 
-    @field_validator("claude_allowed_tools", mode="before")
+    @field_validator("claude_allowed_tools", "claude_disallowed_tools", mode="before")
     @classmethod
-    def parse_claude_allowed_tools(cls, v: Any) -> Optional[List[str]]:
+    def parse_claude_tool_list(cls, v: Any) -> Optional[List[str]]:
         """Parse comma-separated tool names."""
         if v is None:
             return None

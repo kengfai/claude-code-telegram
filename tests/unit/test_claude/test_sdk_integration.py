@@ -63,6 +63,7 @@ def _make_mock_process(*line_bytes: bytes) -> MagicMock:
     mock_proc.stdout = MagicMock()
     mock_proc.stdout.readline = AsyncMock(side_effect=readline)
     mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.kill = MagicMock()
     return mock_proc
 
 
@@ -220,6 +221,7 @@ class TestClaudeSDKManager:
         mock_proc.stdout = MagicMock()
         mock_proc.stdout.readline = AsyncMock(side_effect=hanging_readline)
         mock_proc.wait = AsyncMock(return_value=0)
+        mock_proc.kill = MagicMock()
 
         async def _create(*cmd, **kwargs):
             return mock_proc

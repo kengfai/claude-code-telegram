@@ -223,6 +223,7 @@ class ClaudeSDKManager:
 
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
+                    stdin=asyncio.subprocess.DEVNULL,  # EOF immediately; prevents interactive prompts hanging
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                     cwd=str(working_directory),
@@ -230,8 +231,24 @@ class ClaudeSDKManager:
                 )
                 assert proc.stdout is not None
 
+                # Idle timeout: if no output received for this many seconds, abort.
+                # Catches interactive tools (EnterPlanMode, AskUserQuestion) that
+                # hang waiting for user input that never arrives in --print mode.
+                idle_timeout = 60.0
+
                 while True:
-                    line_bytes = await proc.stdout.readline()
+                    try:
+                        line_bytes = await asyncio.wait_for(
+                            proc.stdout.readline(), timeout=idle_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                        await proc.wait()
+                        raise ClaudeTimeoutError(
+                            f"Claude stopped producing output for {idle_timeout:.0f}s "
+                            "(possibly waiting for interactive input). "
+                            "Try rephrasing without 'plan mode' or similar interactive commands."
+                        )
                     if not line_bytes:
                         break
                     line = line_bytes.decode().strip()
