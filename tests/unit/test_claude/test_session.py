@@ -146,7 +146,8 @@ class TestClaudeSession:
 
     def test_is_expired_handles_legacy_naive_last_used(self):
         """Expiry check should not crash on naive legacy timestamps."""
-        naive_old = datetime.now() - timedelta(hours=30)
+        # Use UTC-based time so _to_utc treats it correctly regardless of local timezone
+        naive_old = (datetime.now(UTC) - timedelta(hours=30)).replace(tzinfo=None)
         session = ClaudeSession(
             session_id="legacy-session",
             user_id=123,

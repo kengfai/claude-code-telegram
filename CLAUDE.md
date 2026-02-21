@@ -28,7 +28,9 @@ poetry run mypy src
 
 ### Claude SDK Integration
 
-`ClaudeIntegration` (facade in `src/claude/facade.py`) wraps `ClaudeSDKManager` (`src/claude/sdk_integration.py`), which uses `claude-agent-sdk` with `ClaudeSDKClient` for async streaming. Session IDs come from Claude's `ResultMessage`, not generated locally.
+`ClaudeIntegration` (facade in `src/claude/facade.py`) wraps `ClaudeSDKManager` (`src/claude/sdk_integration.py`), which spawns the `claude` CLI directly via `asyncio.create_subprocess_exec` in `--print` mode (bypassing the SDK's `ClaudeSDKClient` which had a broken stdin protocol). Parses JSON stream output using `claude_agent_sdk._internal.message_parser`. Session IDs come from Claude's `ResultMessage`, not generated locally.
+
+**Key implementation detail**: The SDK's `--input-format stream-json` (bidirectional stdin protocol) is NOT used. Instead `--output-format stream-json --print <prompt>` is used — the CLI takes the prompt as an arg, executes with full tool support, and exits. This is the only approach that correctly executes tools and returns a `ResultMessage`.
 
 Sessions auto-resume: per user+directory, persisted in SQLite.
 

@@ -74,10 +74,12 @@ def test_allowed_users_parsing_with_spaces():
 def test_security_relaxation_settings_defaults_and_overrides():
     """Security relaxation settings should default to False and be configurable."""
     with tempfile.TemporaryDirectory() as tmp_dir:
+        # Pass _env_file=None to avoid picking up values from the project .env file
         defaults = Settings(
             telegram_bot_token="test_token",
             telegram_bot_username="test_bot",
             approved_directory=tmp_dir,
+            _env_file=None,
         )
         assert defaults.disable_security_patterns is False
         assert defaults.disable_tool_validation is False
@@ -289,6 +291,7 @@ def test_project_threads_validation_requires_chat_id_in_group_mode(tmp_path):
             enable_project_threads=True,
             project_threads_mode="group",
             projects_config_path=str(config_file),
+            _env_file=None,  # Avoid .env supplying a chat_id
         )
 
     assert "project_threads_chat_id required" in str(exc_info.value)
@@ -349,6 +352,7 @@ def test_project_threads_validation_private_mode_no_chat_id(tmp_path):
         enable_project_threads=True,
         project_threads_mode="private",
         projects_config_path=str(config_file),
+        _env_file=None,  # Avoid .env supplying a chat_id
     )
 
     assert settings.project_threads_mode == "private"

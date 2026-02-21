@@ -17,7 +17,6 @@ import structlog
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
-    ClaudeSDKClient,
     ClaudeSDKError,
     CLIConnectionError,
     CLIJSONDecodeError,
@@ -25,11 +24,12 @@ from claude_agent_sdk import (
     Message,
     ProcessError,
     ResultMessage,
+    ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
 from claude_agent_sdk._errors import MessageParseError
-from claude_agent_sdk._internal.message_parser import parse_message
+from claude_agent_sdk._internal.message_parser import parse_message as _parse_message
 
 from ..config.settings import Settings
 from .exceptions import (
@@ -141,6 +141,10 @@ class ClaudeSDKManager:
                 "SDK may fail if Claude is not installed or not in PATH."
             )
 
+        # Cache CLI path to avoid filesystem lookups on every request
+        self._cached_cli_path: Optional[str] = find_claude_cli(config.claude_cli_path) or "claude"
+        logger.info("Resolved Claude CLI path", cli_path=self._cached_cli_path)
+
         # Set up environment for Claude Code SDK if API key is provided
         # If no API key is provided, the SDK will use existing CLI authentication
         if config.anthropic_api_key_str:
@@ -169,18 +173,22 @@ class ClaudeSDKManager:
 
         try:
             # Build Claude Agent options
-            cli_path = find_claude_cli(self.config.claude_cli_path)
             options = ClaudeAgentOptions(
                 max_turns=self.config.claude_max_turns,
                 cwd=str(working_directory),
                 allowed_tools=self.config.claude_allowed_tools,
                 disallowed_tools=self.config.claude_disallowed_tools,
-                cli_path=cli_path,
-                sandbox={
-                    "enabled": self.config.sandbox_enabled,
-                    "autoAllowBashIfSandboxed": True,
-                    "excludedCommands": self.config.sandbox_excluded_commands or [],
-                },
+                cli_path=self._cached_cli_path,
+                permission_mode="bypassPermissions",
+                sandbox=(
+                    {
+                        "enabled": self.config.sandbox_enabled,
+                        "autoAllowBashIfSandboxed": True,
+                        "excludedCommands": self.config.sandbox_excluded_commands or [],
+                    }
+                    if self.config.sandbox_enabled
+                    else None
+                ),
                 system_prompt=(
                     f"All file operations must stay within {working_directory}. "
                     "Use relative paths."
@@ -203,47 +211,60 @@ class ClaudeSDKManager:
                     session_id=session_id,
                 )
 
-            # Collect messages via ClaudeSDKClient
+            # Collect messages by running claude CLI directly in --print mode.
+            # The SDK streaming (--input-format stream-json) mode aborts tool
+            # execution when stdin closes early, so we use --print instead.
             messages: List[Message] = []
 
             async def _run_client() -> None:
-                async with ClaudeSDKClient(options) as client:
-                    await client.query(prompt)
+                import json as _json
 
-                    # Iterate over raw messages and parse them ourselves
-                    # so that MessageParseError (e.g. from rate_limit_event)
-                    # doesn't kill the underlying async generator. When
-                    # parse_message raises inside the SDK's receive_messages()
-                    # generator, Python terminates that generator permanently,
-                    # causing us to lose all subsequent messages including
-                    # the ResultMessage.
-                    async for raw_data in client._query.receive_messages():
-                        try:
-                            message = parse_message(raw_data)
-                        except MessageParseError as e:
-                            logger.debug(
-                                "Skipping unparseable message",
+                cmd = await self._build_print_command(options, prompt)
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    cwd=str(working_directory),
+                    env=os.environ.copy(),
+                )
+                assert proc.stdout is not None
+
+                while True:
+                    line_bytes = await proc.stdout.readline()
+                    if not line_bytes:
+                        break
+                    line = line_bytes.decode().strip()
+                    if not line:
+                        continue
+                    try:
+                        data = _json.loads(line)
+                        message = _parse_message(data)
+                    except MessageParseError as e:
+                        if "Unknown message type" in str(e):
+                            logger.info(
+                                "Skipping unknown SDK message type",
                                 error=str(e),
                             )
                             continue
+                        raise
+                    except Exception:
+                        continue
+                    messages.append(message)
 
-                        messages.append(message)
+                    if stream_callback:
+                        try:
+                            await self._handle_stream_message(
+                                message, stream_callback
+                            )
+                        except Exception as callback_error:
+                            logger.warning(
+                                "Stream callback failed",
+                                error=str(callback_error),
+                                error_type=type(callback_error).__name__,
+                            )
 
-                        if isinstance(message, ResultMessage):
-                            break
-
-                        # Handle streaming callback
-                        if stream_callback:
-                            try:
-                                await self._handle_stream_message(
-                                    message, stream_callback
-                                )
-                            except Exception as callback_error:
-                                logger.warning(
-                                    "Stream callback failed",
-                                    error=str(callback_error),
-                                    error_type=type(callback_error).__name__,
-                                )
+                await proc.wait()
 
             # Execute with timeout
             await asyncio.wait_for(
@@ -290,12 +311,25 @@ class ClaudeSDKManager:
                     previous_session_id=session_id,
                 )
 
+            # DEBUG: log all messages
+            for _m in messages:
+                logger.info(
+                    "DEBUG message",
+                    msg_type=type(_m).__name__,
+                    content_preview=str(getattr(_m, "content", ""))[:200],
+                    result=str(getattr(_m, "result", ""))[:200],
+                )
+
             # Use ResultMessage.result if available, fall back to message extraction
             content = (
                 result_content
                 if result_content is not None
                 else self._extract_content_from_messages(messages)
             )
+            # If Claude responded with only tool calls and no text, avoid sending
+            # an empty message to Telegram (which rejects it with 400).
+            if not content or not content.strip():
+                content = "✅ Done."
 
             return ClaudeResponse(
                 content=content,
@@ -397,6 +431,41 @@ class ClaudeSDKManager:
                 )
                 raise ClaudeProcessError(f"Unexpected error: {str(e)}")
 
+    async def _build_print_command(
+        self, options: ClaudeAgentOptions, prompt: str
+    ) -> List[str]:
+        """Build claude CLI command using --print mode (no stdin protocol)."""
+        import json as _json
+
+        cli_path = str(options.cli_path) if options.cli_path else self._cached_cli_path
+        cmd: List[str] = [
+            cli_path,
+            "--output-format", "stream-json",
+            "--verbose",
+            "--print", prompt,
+        ]
+        if options.permission_mode:
+            cmd.extend(["--permission-mode", options.permission_mode])
+        if options.max_turns:
+            cmd.extend(["--max-turns", str(options.max_turns)])
+        if options.system_prompt and isinstance(options.system_prompt, str):
+            cmd.extend(["--system-prompt", options.system_prompt])
+        if options.allowed_tools:
+            cmd.extend(["--allowedTools", ",".join(options.allowed_tools)])
+        if options.disallowed_tools:
+            cmd.extend(["--disallowedTools", ",".join(options.disallowed_tools)])
+        if options.resume:
+            cmd.extend(["--resume", options.resume])
+        if options.sandbox:
+            settings_json = _json.dumps({"sandbox": options.sandbox})
+            cmd.extend(["--settings", settings_json])
+        if options.mcp_servers and isinstance(options.mcp_servers, dict):
+            mcp_json = _json.dumps({"mcpServers": options.mcp_servers})
+            cmd.extend(["--mcp-config", mcp_json])
+        # Always suppress reading project/user settings that could conflict
+        cmd.extend(["--setting-sources", ""])
+        return cmd
+
     async def _handle_stream_message(
         self, message: Message, stream_callback: Callable[[StreamUpdate], None]
     ) -> None:
@@ -450,21 +519,37 @@ class ClaudeSDKManager:
 
     def _extract_content_from_messages(self, messages: List[Message]) -> str:
         """Extract content from message list."""
-        content_parts = []
+        text_parts: List[str] = []
+        tool_result_parts: List[str] = []
 
         for message in messages:
             if isinstance(message, AssistantMessage):
                 content = getattr(message, "content", [])
                 if content and isinstance(content, list):
-                    # Extract text from TextBlock objects
                     for block in content:
                         if hasattr(block, "text"):
-                            content_parts.append(block.text)
+                            text_parts.append(block.text)
                 elif content:
-                    # Fallback for non-list content
-                    content_parts.append(str(content))
+                    text_parts.append(str(content))
+            elif isinstance(message, UserMessage):
+                # Collect tool results as fallback when Claude produces no text
+                content = getattr(message, "content", [])
+                if content and isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, ToolResultBlock) and not block.is_error:
+                            raw = block.content
+                            if isinstance(raw, str) and raw.strip():
+                                tool_result_parts.append(raw.strip())
+                            elif isinstance(raw, list):
+                                for item in raw:
+                                    if isinstance(item, dict) and item.get("text", "").strip():
+                                        tool_result_parts.append(item["text"].strip())
 
-        return "\n".join(content_parts)
+        # Prefer assistant text; fall back to tool output so commands like
+        # "git log" show their output instead of "✅ Done."
+        if text_parts:
+            return "\n".join(text_parts)
+        return "\n\n".join(tool_result_parts)
 
     def _extract_tools_from_messages(
         self, messages: List[Message]

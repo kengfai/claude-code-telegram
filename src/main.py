@@ -3,10 +3,15 @@
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+# Strip CLAUDECODE so the SDK can spawn child Claude processes even when
+# this bot is launched from inside a Claude Code session.
+os.environ.pop("CLAUDECODE", None)
 
 import structlog
 
