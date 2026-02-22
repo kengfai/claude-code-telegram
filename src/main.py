@@ -13,36 +13,36 @@ from typing import Any, Dict, Optional
 # this bot is launched from inside a Claude Code session.
 os.environ.pop("CLAUDECODE", None)
 
-import structlog
+import structlog  # noqa: E402
 
-from src import __version__
-from src.bot.core import ClaudeCodeBot
-from src.claude import (
+from src import __version__  # noqa: E402
+from src.bot.core import ClaudeCodeBot  # noqa: E402
+from src.claude import (  # noqa: E402
     ClaudeIntegration,
     SessionManager,
     ToolMonitor,
 )
-from src.claude.sdk_integration import ClaudeSDKManager
-from src.config.features import FeatureFlags
-from src.config.settings import Settings
-from src.events.bus import EventBus
-from src.events.handlers import AgentHandler
-from src.events.middleware import EventSecurityMiddleware
-from src.exceptions import ConfigurationError
-from src.notifications.service import NotificationService
-from src.projects import ProjectThreadManager, load_project_registry
-from src.scheduler.scheduler import JobScheduler
-from src.security.audit import AuditLogger, InMemoryAuditStorage
-from src.security.auth import (
+from src.claude.sdk_integration import ClaudeSDKManager  # noqa: E402
+from src.config.features import FeatureFlags  # noqa: E402
+from src.config.settings import Settings  # noqa: E402
+from src.events.bus import EventBus  # noqa: E402
+from src.events.handlers import AgentHandler  # noqa: E402
+from src.events.middleware import EventSecurityMiddleware  # noqa: E402
+from src.exceptions import ConfigurationError  # noqa: E402
+from src.notifications.service import NotificationService  # noqa: E402
+from src.projects import ProjectThreadManager, load_project_registry  # noqa: E402
+from src.scheduler.scheduler import JobScheduler  # noqa: E402
+from src.security.audit import AuditLogger, InMemoryAuditStorage  # noqa: E402
+from src.security.auth import (  # noqa: E402
     AuthenticationManager,
     InMemoryTokenStorage,
     TokenAuthProvider,
     WhitelistAuthProvider,
 )
-from src.security.rate_limiter import RateLimiter
-from src.security.validators import SecurityValidator
-from src.storage.facade import Storage
-from src.storage.session_storage import SQLiteSessionStorage
+from src.security.rate_limiter import RateLimiter  # noqa: E402
+from src.security.validators import SecurityValidator  # noqa: E402
+from src.storage.facade import Storage  # noqa: E402
+from src.storage.session_storage import SQLiteSessionStorage  # noqa: E402
 
 
 def setup_logging(debug: bool = False) -> None:

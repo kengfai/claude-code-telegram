@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 
 from src.claude.sdk_integration import ClaudeResponse, ClaudeSDKManager, StreamUpdate
 from src.config.settings import Settings
