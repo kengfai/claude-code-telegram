@@ -12,26 +12,28 @@ from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
 from src.claude.sdk_integration import ClaudeResponse, ClaudeSDKManager, StreamUpdate
 from src.config.settings import Settings
 
-
 # ---------------------------------------------------------------------------
 # Helpers: produce JSON bytes in the format --output-format stream-json uses
 # ---------------------------------------------------------------------------
 
+
 def _assistant_json(text="Test response") -> bytes:
     return (
-        json.dumps({
-            "type": "assistant",
-            "message": {
-                "id": "msg_test",
-                "type": "message",
-                "role": "assistant",
-                "model": "claude-sonnet-4-20250514",
-                "content": [{"type": "text", "text": text}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            },
-        })
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-sonnet-4-20250514",
+                    "content": [{"type": "text", "text": text}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            }
+        )
         + "\n"
     ).encode()
 
@@ -495,5 +497,3 @@ class TestClaudeMCPErrors:
                 )
 
         assert "MCP" in str(exc_info.value)
-
-

@@ -142,7 +142,9 @@ class ClaudeSDKManager:
             )
 
         # Cache CLI path to avoid filesystem lookups on every request
-        self._cached_cli_path: Optional[str] = find_claude_cli(config.claude_cli_path) or "claude"
+        self._cached_cli_path: Optional[str] = (
+            find_claude_cli(config.claude_cli_path) or "claude"
+        )
         logger.info("Resolved Claude CLI path", cli_path=self._cached_cli_path)
 
         # Set up environment for Claude Code SDK if API key is provided
@@ -271,9 +273,7 @@ class ClaudeSDKManager:
 
                     if stream_callback:
                         try:
-                            await self._handle_stream_message(
-                                message, stream_callback
-                            )
+                            await self._handle_stream_message(message, stream_callback)
                         except Exception as callback_error:
                             logger.warning(
                                 "Stream callback failed",
@@ -457,9 +457,11 @@ class ClaudeSDKManager:
         cli_path = str(options.cli_path) if options.cli_path else self._cached_cli_path
         cmd: List[str] = [
             cli_path,
-            "--output-format", "stream-json",
+            "--output-format",
+            "stream-json",
             "--verbose",
-            "--print", prompt,
+            "--print",
+            prompt,
         ]
         if options.permission_mode:
             cmd.extend(["--permission-mode", options.permission_mode])
@@ -559,7 +561,10 @@ class ClaudeSDKManager:
                                 tool_result_parts.append(raw.strip())
                             elif isinstance(raw, list):
                                 for item in raw:
-                                    if isinstance(item, dict) and item.get("text", "").strip():
+                                    if (
+                                        isinstance(item, dict)
+                                        and item.get("text", "").strip()
+                                    ):
                                         tool_result_parts.append(item["text"].strip())
 
         # Prefer assistant text; fall back to tool output so commands like
