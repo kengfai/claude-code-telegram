@@ -28,7 +28,7 @@ dev:
 	poetry run pre-commit install --install-hooks || echo "pre-commit not configured yet"
 
 test:
-	poetry run pytest
+	poetry run pytest --cov=src --cov-report=html --cov-report=term-missing
 
 lint:
 	poetry run black --check src tests

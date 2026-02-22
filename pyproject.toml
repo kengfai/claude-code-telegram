@@ -75,7 +75,7 @@ line_length = 88
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
-addopts = "-v --cov=src --cov-report=html --cov-report=term-missing"
+addopts = "-v"
 asyncio_mode = "auto"
 
 [tool.mypy]
